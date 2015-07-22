@@ -1,0 +1,242 @@
+---
+title: "Machine Learning - Weight Lifting Analysis"
+author: "dnalren"
+date: "July 20, 2015"
+output: html_document
+---
+
+##Synopsis
+This report was completed as part of the Coursera Practical Machine Learning course provided by Johns Hopkins.  The goal of the report is to use the pml-training.csv dataset to build a model that predicts the manner in which an exrcise was completed as identified by the classe variable.  Logistic, CART and random forest models were compared and a random forest model with 98.3% accuracy  or 1.7% out of sample error was generated.
+
+##Data Processing
+### Load the Data
+The data was downloaded from the Johns Hopkins Practical Machine Learning Coursera website and had already been broken into a testing and training sets.  The original data can be freely accessed at the following site: http://groupware.les.inf.puc-rio.br/har.
+
+The coursera data came in csv format, with one csv file for the training set and one csv file for th e test data set.  The analysis is performed using R software and the data sets must be located in the working directory.  The training and test data sets were loaded into R using the following code.
+
+```{r, results='hide', warning=FALSE}
+#Set the working directory
+setwd("~/Documents/coursera notes/Data Science/MachineLearning/project")
+
+#Load Libraries
+library(caret)   #(loading caret also loads lattice and ggplot2)
+library(rpart)
+library(randomForest)
+#Load the data
+orig_training = read.csv("pml-training.csv")
+orig_testing = read.csv("pml-testing.csv")
+str(orig_training)
+str(orig_testing)
+```
+
+Using the str() function the data set was investigated, the results are not provided, but the primary observations are as follows:
+Training Set
+  - 19622 observations of 160 variables  
+  - data from 6 users  
+  - the dependent variable is the classe variable and is a factor with 5 levels  
+  - there appears to be variables that are intrument readings and variables that are statstical caluclations.  The statistical calulations have several NA values.
+  
+Testing Set
+  - 20 observations of 160 variables  
+  - No classe variable, this is what we are trying to predict  
+  - The statistical variables are columns comprised entirely of NA values  
+
+###Process the Data
+Prediction of the test set is the primary goal of this assignment.  The variables in the testing set that only contain NA values will be removed from both the tesing and training sets as they cannot be used in the prediction of the testing set.
+
+This results in a data set that is completely void of NA values and is ready to be further processed.  In order to create trees the initial ID and timestamp rows were removed next.  Finally, in order to investigate logistic regression, a variable called "proper" was created. The variable is binomial in nature, which a state of 1 if the classe is "A", or being done properly and a state of "0" otherwise.
+
+
+```{r, results = FALSE}
+#determine the number of NAs in each column of the test data set
+natest = NA
+for(i in seq(1,length(orig_testing))){
+    natest = c(natest,sum(is.na(orig_testing[i])))
+}
+natest = natest[2:161]
+
+#Remove columns of all NA values
+test_proc = orig_testing[,which(natest != 20)]
+train_proc = orig_training[,which(natest != 20)]
+
+#Remove the ID and datestamp columns
+train_proc = train_proc[,8:60]
+test_proc = test_proc[,8:60]
+
+train_proc$proper = NA
+train_proc$proper[which(train_proc$classe == "A")] = 1
+train_proc$proper[which(train_proc$classe != "A")] = 0
+
+test_proc$proper = NA
+test_proc$proper[which(test_proc$classe == "A")] = 1
+test_proc$proper[which(test_proc$classe != "A")] = 0
+```
+
+The data is in an state that it can be run through initial analysis so it was split into a training and testing data set to help determine which models perform more accurately on out of sample datasets.  
+
+The test_proc data will not be used until final predictions are made.
+
+```{r}
+#set a testing and training subset of the training data set
+set.seed(12345)
+inTrain = createDataPartition(train_proc$classe, p = 0.7, list = FALSE)
+train_sub = train_proc[inTrain,]
+test_sub = train_proc[-inTrain,]
+```
+
+The train sub and test sub variables have 70% (13737 observations) and 30% (5885 observations) of the original observations in the training data set, respectively.  The createDataPartition method will maintian a similar distribution of the results in the classe variable between the training and train sub variables.
+
+The data is ready for initial analysis.
+
+##Analysis
+###Initial Analysis
+The initial analysis consisted of running three models:
+  1.  Logistic Regression - using proper as dependent variable
+  2.  Cart - using classe as dependent variable
+  3.  Random Forest - using classe as dependent variable
+  
+####Logistic Regression
+Logistic regression was run to determine the acuracy of a logistic regression model in predicting whether or not an activity was done correctly.  This would only be part of a more complete model, but was investigated to determine if it was even worthwhile to pursue.  The confusion matrix is shown below with calculated accuracy.
+
+```{r}
+logmod = glm(proper ~. - classe, family = "binomial", data = train_sub)
+predlog = predict(logmod, newdata = test_sub, type = "response")
+table(test_sub$proper, predlog>0.5)
+```
+
+A threshold value of 0.5 was used for initial analysis but could be tweaked depending on desired error.  The resulting accuracy of predicting proper form had an accuracy of 90.1%.  
+
+####Cart Model
+A CART model was run to test the predictive abilities on the classe variable.  The confusion matrix is shown below along with the accuracy.
+
+```{r}
+cartMod_classe = rpart(classe ~ . - proper, method = "class", data = train_sub)
+pred_classe = predict(cartMod_classe, type = "class", newdata = test_sub)
+table(test_sub$classe, pred_classe)
+```
+
+The CART model was run with default parameters in the rpart function.  Parameters can be tweaked in more detailed analysis.  
+
+The accuracy of the CART model was 72.2%
+
+####Random Forest
+A Random Forest model was run to test the predictive accuracy on the classe variable.  The confusion matrix is shown below along with the calculated accuracy.
+
+```{r}
+set.seed(12345)
+rf_classe = randomForest(classe ~ . - proper, method = "class", data = train_sub)
+rfpred_classe = predict(rf_classe, newdata = test_sub)
+table(test_sub$classe, rfpred_classe)
+```
+
+The random forest model was run using default settings in the randomForest function, these settings can be tweaked as part of further analysis.
+
+The accuracy of the random forest model on the test_sub data set was 99.2%
+
+##Further Analysis
+The Logistic Regression, Cart and Random Forest Models were initially run and the results are shown below.
+  1.  Logistic Regression - Accuracy 90.1%  
+  2.  CART Model - Accuracy 72.2%  
+  3.  Random Forest - Accuracy 99.2%  
+  
+Based on the high accuracy of the random forest results, only the Random Forest Model will be looked at in more detail.
+
+###Reducing Variables
+In order to decrease the chance of overfitting, the effect of removing variables was investigated.  The independent variables were investigated using varImpPlot and the number of times the variable was used as a split, to get a gauge of the impact the variables have on the model.
+
+```{r}
+#Plot number of times variables were used in a split
+vu = varUsed(rf_classe, count = TRUE)
+vus = sort(vu, decreasing = FALSE, index.return = TRUE)
+dotchart(vus$x, names(rf_classe$forest$xlevels[vus$ix]), cex = 0.7)
+
+#Plot the results of varImpPlot
+varImpPlot(rf_classe, cex = 0.75)
+```
+
+
+The plots show a similar result.  There are approximately 8 variables that show up as having more influence based on these plots:
+  - yaw_belt  
+  - pitch_belt  
+  - magnet_dumbbell_z  
+  - roll_belt  
+  - magnet_dumbbell_y  
+  - magnet_dumbbell_x  
+  - pitch_forearm  
+  - roll_forearm  
+
+A random Forest model using only these 8 variables was completed to compare the accuracy of a simplified model with the initial random forest model.  The confusion matrix is shown below.
+
+```{r}
+set.seed(12345)
+rf_small = randomForest(classe ~ yaw_belt + pitch_belt + magnet_dumbbell_z + roll_belt + magnet_dumbbell_y + magnet_dumbbell_x + pitch_forearm + roll_forearm, method = "class", data = train_sub)
+rfpred_small = predict(rf_small, newdata = test_sub)
+table(test_sub$classe, rfpred_small)
+```
+
+The default values were again used as teh accuracy is quite high and further investigation does not seem necessary for this application.
+
+The accuracy of the simplified random forest model was 98.3%.
+
+###Cross Validation
+Running the rfcv function to calculate the out of sample error estimate using cross validation confirms this result.  As seen below, it shows a 1.7% out of sample error (98.3% accuracy) based on the cross validation analysis.
+
+```{r}
+cv_error = rfcv(train_sub[,c(1,2, 3, 37, 38, 39, 40, 41)], train_sub$classe, scale = "log", step = 0.95 )
+cv_error$error.cv
+```
+
+
+##Conclusion
+The goal of this assignment is to build a model based on the data in the pml-training.csv file and predict the classe of 20 observations in the pml-test.csv file.  
+Logistic, CART and Random Forest models were explored and compared based on accuracy predicting classe on a sample of the training data set.  The Random Forest model was selected based on a 99% accuracy compared to a 90% accuracy for the logistic regression and a 72% accuracy with the CART model.
+
+The Random Forest model was further analysed using a varImpPlot and plotting the number of splits each of the independent variables was used in.  The two plots were in agreement and showed 8 variables that were more significant than the others.  Another random forest model was created using these 8 independent variables and had a 1.7% out of sample error based on cross validation.  
+
+This more simple 8 variable random forest model was adopted for use for the following reasons:  
+  - High accuracy, although 1% lower than using all variables this accuracy is still sufficient for the application.  In practice a user would perform several repetitions so a single misread should just be averaged out.  
+  - Simpler model, less likely to be overfitted.  
+  - Faster model to run, will take less processor time on a mobile device.  
+
+
+
+
+```{r, echo = FALSE}
+#rf_verysmall = randomForest(classe ~ yaw_belt + magnet_dumbbell_z + magnet_dumbbe#ll_y + magnet_dumbbell_x + pitch_forearm + roll_forearm, method = "class", data = #train_sub)
+#rfpred_verysmall = predict(rf_verysmall, newdata = test_sub)
+#table(test_sub$classe, rfpred_verysmall)
+
+#accuracy = 0.954
+
+#cart_verysmall = rpart(classe ~ yaw_belt + magnet_dumbbell_z + magnet_dumbbell_y + magnet_dumbbell_x + pitch_forearm + roll_forearm, method = "class", data = train_sub)
+#> pred_cart_verysmall = predict(cart_verysmall, type = "class", newdata = test_sub)
+#> table(test_sub$classe, pred_cart_verysmall)
+#accuracy = .674
+
+#determine the number of NAs in each column of the training data set
+#nas = NA
+#for(i in seq(1,length(training))){
+    
+#    nas = c(nas,sum(is.na(training[i])))
+#}
+#nas = nas[2:162]
+
+#measurements = training[,which(nas < 19216)]
+#stats = training[,which(nas >= 19216 & nas < 19622)]
+#stats = stats[which(!is.na(stats$var_yaw_forearm)),]
+#nsv = nearZeroVar(stats, saveMetrics = TRUE)
+#stats = stats[,which(nsv$nzv == FALSE)] 
+#training[training == "#DIV/0!"] = NA
+#training[training == ""] = NA
+
+#cartMod_prop = rpart(proper ~ . - classe, method = "class", data = train_sub)
+#plot(cartMod_prop)
+#set.seed(12345)
+#pred_prop = predict(cartMod_prop, type = "class", newdata = test_sub)
+#table(test_sub$proper, pred_pop)
+#Accuracy = 0.954
+
+#plot(cartMod_classe)
+#text(cartMod_classe)
+
+```
